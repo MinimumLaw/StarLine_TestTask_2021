@@ -62,12 +62,15 @@ void SystemClock_Config(void);
 
 static void sw_init(void)
 {
-    while( s_uart->init(s_uart, 57600, 8, 'n', 2) != E_SUART_SUCCESS);
+    while( s_uart->init(s_uart, 115200, 8, 'n', 1) != E_SUART_SUCCESS);
 }
+
+static char send_byte = '0';
 
 static void start_test_task(void)
 {
-    while( s_uart->send(s_uart, '2', &start_test_task) != E_SUART_SUCCESS);
+    while( s_uart->send(s_uart, send_byte++, &start_test_task) != E_SUART_SUCCESS);
+    if (send_byte > '9') send_byte = '0';
     HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin);
 }
 

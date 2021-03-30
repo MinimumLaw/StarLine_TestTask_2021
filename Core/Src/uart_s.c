@@ -13,20 +13,18 @@ s_uart_t	*s_uart = &uart_dev;
 /* ToDo: this is a test task, in real world s_uart list here */
 static void on_bit_time(TIM_HandleTypeDef *htim)
 {
-    static uint8_t bits_remain;
-
     if (htim->Instance != TIM14) return; /* why we here? */
 
     switch(s_uart->state) {
     case S_UART_NOT_START:	/* Start transfer */
-	s_uart->set_tx(1); /* START bit */
-	s_uart->state = S_UART_START;
-	bits_remain = s_uart->ch_bits;
+	s_uart->set_tx(0);
+	s_uart->state = S_UART_DATA;
+	s_uart->bits_transfered = 0;
 	break;
-    case S_UART_START:		/* Hi bit transfer */
-    case S_UART_DATA:		/* over bits transfer */
-	s_uart->set_tx(s_uart->tr_data & (1<<(--bits_remain)));
-	if (!bits_remain) {
+    case S_UART_DATA:		/* start bit transfered */
+        /* LSB first */
+	s_uart->set_tx(s_uart->tr_data & (1<<s_uart->bits_transfered++));
+	if (s_uart->bits_transfered >= s_uart->ch_bits) { /* FixMe: == here */
 	    switch(s_uart->par) {	/* check no parity */
 	    case 'n':
 	    case 'N':
@@ -36,7 +34,7 @@ static void on_bit_time(TIM_HandleTypeDef *htim)
 	    default:
 		s_uart->state = S_UART_PARITY;
 	    };
-	} else {
+	} else { /* bits remaining - stay in data transfer state */
 	    s_uart->state = S_UART_DATA;
 	};
 	break;
@@ -48,8 +46,8 @@ static void on_bit_time(TIM_HandleTypeDef *htim)
 	    s_uart->set_tx(1);
 	    s_uart->state = S_UART_STOP_1;
 	    break;
-	case 'C': /* clean */
-	case 'c':
+	case 'S': /* space */
+	case 's':
 	case '-':
 	    s_uart->set_tx(0);
 	    s_uart->state = S_UART_STOP_1;
@@ -76,7 +74,7 @@ static void on_bit_time(TIM_HandleTypeDef *htim)
               tmp &= (tmp - 1);
               nr++;
             };
-	    s_uart->set_tx(!(nr & 1));
+	    s_uart->set_tx(nr & 1);
 	    s_uart->state = S_UART_STOP_1; };
 	    break;
         };
@@ -126,7 +124,7 @@ static int uart_s_send(s_uart_t *dev, uint32_t data, void(*on_send_done)(void))
     return E_SUART_SUCCESS;
 }
 
-#warning TIM source clock frequency hardcoded here.
+#warning TIM source clock frequency hardcoded here. M.B. calculate them?
 #define TIM_CLOCK_SRC_FREQ     72000000UL
 
 static int uart_s_init(s_uart_t *dev, int speed, uint8_t ch_bits, char par, uint8_t stop)
@@ -140,7 +138,6 @@ static int uart_s_init(s_uart_t *dev, int speed, uint8_t ch_bits, char par, uint
     dev->stop = (stop > 2) ? 2 : stop;
 
     /* timer setup to call fn on_bit_time and disable them  */
-//    HAL_TIM_Base_DeInit(&htim14);
     htim14.Init.Period = (TIM_CLOCK_SRC_FREQ / speed);
     htim14.Instance->CNT = 0; /* reset counter */
     HAL_TIM_Base_Init(&htim14);
