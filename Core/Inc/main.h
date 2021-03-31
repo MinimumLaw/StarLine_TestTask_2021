@@ -128,6 +128,15 @@ void Error_Handler(void);
 #define MEMS_INT2_GPIO_Port GPIOE
 /* USER CODE BEGIN Private defines */
 
+#define RINGBUFF_S_MEM_SIZE             (100+16) /* data + sizeof(control_block) */
+#define MAX_TEMP_ARRAY_SIZE             (250)    /* more, than buffer size */
+/*
+     115200,8n1 - 10 bit + 1 guard interval = 11 bit per byte, or 
+  about 10,5 kbytes per sec. Full buffer size (100 bytes) will be transfered
+  in about 100 ms, so delay MUST be smaller, than this value. Let's be 25
+*/
+#define MAX_DELAY_MS                    (25)
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

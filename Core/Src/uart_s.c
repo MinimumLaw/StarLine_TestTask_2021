@@ -94,8 +94,11 @@ static void on_bit_time(TIM_HandleTypeDef *htim)
 	s_uart->state = S_UART_NONE;
         HAL_TIM_Base_Stop_IT(&htim14);
 	mutex_unlock(&s_uart->mutex);
-	if(s_uart->on_send_done)
-	    s_uart->on_send_done();
+	if(s_uart->on_send_done) {
+            void (*cb)(void) = s_uart->on_send_done;
+	    s_uart->on_send_done = NULL;
+            cb();
+        };
 	break;
     default:
 	/* bit timer disable here, but... WTF? Why I'm here? */

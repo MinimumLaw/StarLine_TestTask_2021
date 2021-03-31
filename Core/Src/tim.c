@@ -30,6 +30,13 @@ TIM_HandleTypeDef htim14;
 void MX_TIM14_Init(void)
 {
 
+  /* USER CODE BEGIN TIM14_Init 0 */
+
+  /* USER CODE END TIM14_Init 0 */
+
+  /* USER CODE BEGIN TIM14_Init 1 */
+
+  /* USER CODE END TIM14_Init 1 */
   htim14.Instance = TIM14;
   htim14.Init.Prescaler = 0;
   htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -40,6 +47,9 @@ void MX_TIM14_Init(void)
   {
     Error_Handler();
   }
+  /* USER CODE BEGIN TIM14_Init 2 */
+
+  /* USER CODE END TIM14_Init 2 */
 
 }
 

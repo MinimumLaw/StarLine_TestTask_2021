@@ -26,6 +26,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "mutex.h"
+#include "rbuff_s.h"
 #include "uart_s.h"
 /* USER CODE END Includes */
 
@@ -47,6 +49,11 @@
 
 /* USER CODE BEGIN PV */
 
+static mutex_t s_uart_used; /* locked while usart_s transfer data */
+static char    rb_memory_block[RINGBUFF_S_MEM_SIZE];
+static rbuff_s *rb = (rbuff_s *)rb_memory_block;
+static volatile uint32_t random_bytes_remain;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -58,20 +65,86 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/* honeypot for detect bugs by stacktrace */
+void my_bug(void)
+{
+  while(1);
+}
+
 /* OK, hw_init() already competed by STMicroelectronics HAL drivers */
 
 static void sw_init(void)
 {
+    mutex_unlock(&s_uart_used);
     while( s_uart->init(s_uart, 115200, 8, 'n', 1) != E_SUART_SUCCESS);
+
+    if (rbuff_s_init((void *)rb_memory_block, RINGBUFF_S_MEM_SIZE)) my_bug();
 }
 
-static char send_byte = '0';
-
-static void start_test_task(void)
+static void s_uart_send_next(void)
 {
-    while( s_uart->send(s_uart, send_byte++, &start_test_task) != E_SUART_SUCCESS);
-    if (send_byte > '9') send_byte = '0';
-    HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin);
+    int err;
+    uint8_t data;
+    
+    err = rbuff_s_get(rb, &data);
+    if (err == E_RBS_EMPTY) { 
+      mutex_unlock(&s_uart_used); /* no more data for transfer */
+      HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin); /* RED Toggle on empty */
+      return;
+    } else if (err) { /* any other error */
+      my_bug();
+    } else { /* s_uart->send must return SUCCESS (zero) here */
+      if (s_uart->send(s_uart, data, &s_uart_send_next)) my_bug();
+    };
+}
+
+/*
+ * Random delay, then ramdom size array off random data 
+ * put to rb, and start transfer if required
+ */
+void rng_ready(RNG_HandleTypeDef *hrng, uint32_t random32bit)
+{        
+    /* FixMe: speed optimisation required */
+    /* only one RNG module on chip */
+    if (hrng->Instance != RNG) my_bug();
+    uint8_t data = (random32bit & 0x0000007F); /* FILTER: only LOW ASCII */
+    if (data < 0x20) data=0x20;                /* FILTER: no scecial chars */
+    /* rb MUST not be locked in some priority ISR handlers, so
+       rbuff_s_put must allways return success (zero) */
+    if (rbuff_s_put(rb, data)) my_bug();
+    if(--random_bytes_remain)
+      HAL_RNG_GenerateRandomNumber_IT(hrng);
+}
+
+static void producer_task(void)
+{
+    uint32_t time_req;
+    uint32_t rng_get;
+    
+    /* yes, this single task in primary code cicle, so let's use blocking */
+
+    /* random delay */
+    while(HAL_RNG_GenerateRandomNumber(&hrng, &rng_get) != HAL_OK);
+    rng_get %= MAX_DELAY_MS; /* 0 ... (MAX_DELAY_MS -1) */
+    time_req = HAL_GetTick() + rng_get;
+    while( (time_req - HAL_GetTick()) > 0); /* FixMe: on overflow */
+
+    /* random size */
+    while(HAL_RNG_GenerateRandomNumber(&hrng, &rng_get) != HAL_OK);
+    rng_get %= MAX_TEMP_ARRAY_SIZE; /* 0 ... (MAX_TEMP_ARRAY_SIZE-1) */
+    random_bytes_remain = rng_get;
+
+    if(random_bytes_remain) {
+        if(HAL_RNG_RegisterReadyDataCallback(&hrng, &rng_ready) != HAL_OK) my_bug();
+        while(HAL_RNG_GenerateRandomNumber_IT(&hrng) != HAL_OK);
+        while(random_bytes_remain);
+        while(HAL_RNG_UnRegisterReadyDataCallback(&hrng) != HAL_OK);
+    
+        if(!mutex_try_lock(&s_uart_used)) /* s_uart ready for receive data */
+            s_uart_send_next();
+        else
+            HAL_GPIO_TogglePin(LD4_GPIO_Port, LD4_Pin); /* GREEN toogle on non-empty */
+    }
 }
 
 /* USER CODE END 0 */
@@ -110,7 +183,6 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   sw_init();
-  start_test_task();
   HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_RESET);
 
   /* USER CODE END 2 */
@@ -119,6 +191,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* delay, then put random size of random data to rb, start transfer if can */
+    producer_task();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
